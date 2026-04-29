@@ -12,8 +12,6 @@ const RATINGS: Rating[] = ['again', 'hard', 'good', 'easy']
 async function main() {
   const bridge = await waitForEvenAppBridge()
 
-  if (location.search.includes('reset')) localStorage.clear()
-
   let deck = loadDeck()
   const queue = deck.cards.filter(isDue)
 
