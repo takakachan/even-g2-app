@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# Even Hub package
+*.ehpk
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

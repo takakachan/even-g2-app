@@ -7,6 +7,7 @@ import { review, isDue } from './sm2'
 
 import {
   getAllDecks, saveDeck, getActiveDeckId, setActiveDeckId, updateCard,
+  setBridge, syncFromBridge,
 } from './store'
 import { showDeckSelect, showFront, showBack, showDone, showNoDecks } from './display'
 import { initManageUI } from './manage'
@@ -158,6 +159,8 @@ async function handleEvent(bridge: EvenAppBridge, state: State, eventType: numbe
 
 async function main() {
   const bridge = await waitForEvenAppBridge()
+  setBridge(bridge)
+  await syncFromBridge()
   initManageUI()
 
   const allDecks = getAllDecks()

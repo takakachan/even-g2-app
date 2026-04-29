@@ -1,8 +1,39 @@
+import type { EvenAppBridge } from '@evenrealities/even_hub_sdk'
 import type { Card, Deck } from './types'
 
 const DECKS_KEY = 'even-srs-decks'
 const ACTIVE_KEY = 'even-srs-active'
 const LEGACY_KEY = 'even-srs-deck'
+
+// ── bridge storage ────────────────────────────────────────
+
+let _bridge: EvenAppBridge | null = null
+
+export function setBridge(b: EvenAppBridge) {
+  _bridge = b
+}
+
+/** 起動時: SDKストレージ → localStorage に同期 */
+export async function syncFromBridge(): Promise<void> {
+  if (!_bridge) return
+  try {
+    const decks = await _bridge.getLocalStorage(DECKS_KEY)
+    if (decks) localStorage.setItem(DECKS_KEY, typeof decks === 'string' ? decks : JSON.stringify(decks))
+    const active = await _bridge.getLocalStorage(ACTIVE_KEY)
+    if (active) localStorage.setItem(ACTIVE_KEY, typeof active === 'string' ? active : String(active))
+  } catch { /* first run — no data yet */ }
+}
+
+/** 保存時: localStorage → SDKストレージ に書き出し（fire-and-forget） */
+function syncToBridge() {
+  if (!_bridge) return
+  const decks = localStorage.getItem(DECKS_KEY)
+  const active = localStorage.getItem(ACTIVE_KEY)
+  if (decks) _bridge.setLocalStorage(DECKS_KEY, decks).catch(() => {})
+  if (active) _bridge.setLocalStorage(ACTIVE_KEY, active).catch(() => {})
+}
+
+// ── migration ─────────────────────────────────────────────
 
 function migrateIfNeeded() {
   const legacy = localStorage.getItem(LEGACY_KEY)
@@ -19,6 +50,8 @@ function migrateIfNeeded() {
   localStorage.removeItem(LEGACY_KEY)
 }
 
+// ── core ──────────────────────────────────────────────────
+
 function getRawDecks(): Record<string, Deck> {
   const raw = localStorage.getItem(DECKS_KEY)
   return raw ? JSON.parse(raw) : {}
@@ -33,6 +66,7 @@ export function saveDeck(id: string, deck: Deck): void {
   const decks = getRawDecks()
   decks[id] = deck
   localStorage.setItem(DECKS_KEY, JSON.stringify(decks))
+  syncToBridge()
 }
 
 export function deleteDeck(id: string): void {
@@ -43,6 +77,7 @@ export function deleteDeck(id: string): void {
     const remaining = Object.keys(decks)
     localStorage.setItem(ACTIVE_KEY, remaining[0] ?? '')
   }
+  syncToBridge()
 }
 
 export function getActiveDeckId(): string | null {
@@ -51,11 +86,7 @@ export function getActiveDeckId(): string | null {
 
 export function setActiveDeckId(id: string): void {
   localStorage.setItem(ACTIVE_KEY, id)
-}
-
-export async function loadDefaultDeck(): Promise<Deck> {
-  const res = await fetch('./deck.json')
-  return res.json()
+  syncToBridge()
 }
 
 export function updateCard(deck: Deck, updated: Card): Deck {
