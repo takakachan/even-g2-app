@@ -11,12 +11,16 @@ const RATINGS: Rating[] = ['again', 'hard', 'good', 'easy']
 
 async function main() {
   const bridge = await waitForEvenAppBridge()
-  const deck = loadDeck()
+
+  if (location.search.includes('reset')) localStorage.clear()
+
+  let deck = loadDeck()
   const queue = deck.cards.filter(isDue)
 
   let index = 0
   let showingBack = false
   let selectedRating: Rating = 'good'
+  let done = false
 
   if (queue.length === 0) {
     await showDone(bridge)
@@ -26,19 +30,19 @@ async function main() {
   await showFront(bridge, queue[index].front, index, queue.length)
 
   bridge.onEvenHubEvent(async (event) => {
-const rawType = event.textEvent?.eventType ?? event.sysEvent?.eventType
+    if (done) return
+
+    const rawType = event.textEvent?.eventType ?? event.sysEvent?.eventType
     const hasEvent = event.textEvent != null || event.sysEvent != null
     const eventType = rawType ?? (hasEvent ? OsEventTypeList.CLICK_EVENT : undefined)
     if (eventType === undefined) return
 
-    // 2回タップ → 裏面：キャンセル（表面に戻る）、表面：アプリ終了
+    // 2回タップ → 裏面はキャンセル、表面は何もしない
     if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
       if (showingBack) {
         showingBack = false
         selectedRating = 'good'
         await showFront(bridge, queue[index].front, index, queue.length)
-      } else {
-        await bridge.shutDownPageContainer(1)
       }
       return
     }
@@ -68,13 +72,15 @@ const rawType = event.textEvent?.eventType ?? event.sysEvent?.eventType
     // タップ → 確定
     if (eventType === OsEventTypeList.CLICK_EVENT) {
       const updated = review(queue[index], selectedRating)
-      saveDeck(updateCard(deck, updated))
+      deck = updateCard(deck, updated)
+      saveDeck(deck)
 
       index++
       showingBack = false
       selectedRating = 'good'
 
       if (index >= queue.length) {
+        done = true
         await showDone(bridge)
       } else {
         await showFront(bridge, queue[index].front, index, queue.length)
