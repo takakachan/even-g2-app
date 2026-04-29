@@ -4,27 +4,33 @@ import {
   type EvenAppBridge,
 } from '@evenrealities/even_hub_sdk'
 import { review, isDue } from './sm2'
+
 import {
-  getAllDecks, saveDeck, getActiveDeckId, setActiveDeckId, loadDefaultDeck, updateCard,
+  getAllDecks, saveDeck, getActiveDeckId, setActiveDeckId, updateCard,
 } from './store'
-import { showDeckSelect, showFront, showBack, showDone } from './display'
+import { showDeckSelect, showFront, showBack, showDone, showNoDecks } from './display'
 import { initManageUI } from './manage'
 import type { Card, Deck, Rating } from './types'
 
 const RATINGS: Rating[] = ['again', 'hard', 'good', 'easy']
 
 type State =
+  | { mode: 'no-decks' }
   | { mode: 'deck-select'; deckIds: string[]; names: string[]; idx: number }
-  | { mode: 'review'; deck: Deck; deckId: string; queue: Card[]; index: number; showingBack: boolean; selectedRating: Rating; done: boolean }
+  | { mode: 'review'; deck: Deck; deckId: string; queue: Card[]; index: number; showingBack: boolean; selectedRating: Rating; done: boolean; multiDeck: boolean }
 
-function makeReviewState(deck: Deck, deckId: string): State {
+function makeReviewState(deck: Deck, deckId: string, multiDeck: boolean): State {
   const queue = deck.cards.filter(isDue)
-  return { mode: 'review', deck, deckId, queue, index: 0, showingBack: false, selectedRating: 'good', done: queue.length === 0 }
+  return { mode: 'review', deck, deckId, queue, index: 0, showingBack: false, selectedRating: 'good', done: queue.length === 0, multiDeck }
 }
 
 async function renderState(bridge: EvenAppBridge, state: State) {
-  if (state.mode === 'deck-select') {
-    await showDeckSelect(bridge, state.names, state.idx)
+  if (state.mode === 'no-decks') {
+    await showNoDecks(bridge)
+  } else if (state.mode === 'deck-select') {
+    const decks = getAllDecks()
+    const dueCounts = state.deckIds.map(id => (decks[id]?.cards ?? []).filter(isDue).length)
+    await showDeckSelect(bridge, state.names, dueCounts, state.idx)
   } else {
     if (state.done) {
       await showDone(bridge)
@@ -38,6 +44,13 @@ async function renderState(bridge: EvenAppBridge, state: State) {
 }
 
 async function handleEvent(bridge: EvenAppBridge, state: State, eventType: number): Promise<State> {
+  if (state.mode === 'no-decks') {
+    if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      await bridge.shutDownPageContainer(1)
+    }
+    return state
+  }
+
   if (state.mode === 'deck-select') {
     if (eventType === OsEventTypeList.SCROLL_TOP_EVENT) {
       const next = { ...state, idx: Math.max(0, state.idx - 1) }
@@ -52,23 +65,53 @@ async function handleEvent(bridge: EvenAppBridge, state: State, eventType: numbe
     if (eventType === OsEventTypeList.CLICK_EVENT) {
       const deckId = state.deckIds[state.idx]
       setActiveDeckId(deckId)
-      const next = makeReviewState(getAllDecks()[deckId], deckId)
+      const next = makeReviewState(getAllDecks()[deckId], deckId, true)
+      await renderState(bridge, next)
+      return next
+    }
+    if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      await bridge.shutDownPageContainer(1)
+      return state
+    }
+    return state
+  }
+
+  // review mode
+  if (state.done) {
+    if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
+      const decks = getAllDecks()
+      const deckIds = Object.keys(decks)
+      const names = deckIds.map(id => decks[id].name)
+      const activeDeckId = getActiveDeckId() ?? deckIds[0]
+      const next: State = { mode: 'deck-select', deckIds, names, idx: deckIds.indexOf(activeDeckId) }
       await renderState(bridge, next)
       return next
     }
     return state
   }
 
-  // review mode
-  if (state.done) return state
-
   if (eventType === OsEventTypeList.DOUBLE_CLICK_EVENT) {
     if (state.showingBack) {
+      // 裏面: 2タップでキャンセル→表面へ
       const next = { ...state, showingBack: false, selectedRating: 'good' as Rating }
       await renderState(bridge, next)
       return next
+    } else {
+      if (state.multiDeck) {
+        // 表面: 2タップでデッキ選択に戻る
+        const decks = getAllDecks()
+        const deckIds = Object.keys(decks)
+        const names = deckIds.map(id => decks[id].name)
+        const activeDeckId = getActiveDeckId() ?? deckIds[0]
+        const next: State = { mode: 'deck-select', deckIds, names, idx: deckIds.indexOf(activeDeckId) }
+        await renderState(bridge, next)
+        return next
+      } else {
+        // デッキ1つ: 2タップで終了（SDKのデフォルトUI）
+        await bridge.shutDownPageContainer(1)
+        return state
+      }
     }
-    return state
   }
 
   if (!state.showingBack) {
@@ -80,7 +123,7 @@ async function handleEvent(bridge: EvenAppBridge, state: State, eventType: numbe
     return state
   }
 
-  // 裏面: 下なぞり=評価アップ、上なぞり=評価ダウン（逆転済み）
+  // 裏面: 下なぞり=評価アップ、上なぞり=評価ダウン
   if (eventType === OsEventTypeList.SCROLL_BOTTOM_EVENT) {
     const i = RATINGS.indexOf(state.selectedRating)
     const next = { ...state, selectedRating: RATINGS[Math.min(i + 1, RATINGS.length - 1)] }
@@ -117,28 +160,23 @@ async function main() {
   const bridge = await waitForEvenAppBridge()
   initManageUI()
 
-  let allDecks = getAllDecks()
-  let deckIds = Object.keys(allDecks)
+  const allDecks = getAllDecks()
+  const deckIds = Object.keys(allDecks)
 
-  if (deckIds.length === 0) {
-    const d = await loadDefaultDeck()
-    saveDeck(d.name, d)
-    setActiveDeckId(d.name)
-    allDecks = { [d.name]: d }
-    deckIds = [d.name]
-  }
-
-  let activeDeckId = getActiveDeckId() ?? deckIds[0]
-  if (!allDecks[activeDeckId]) activeDeckId = deckIds[0]
-  setActiveDeckId(activeDeckId)
-
-  const names = deckIds.map(id => allDecks[id].name)
   let state: State
 
-  if (deckIds.length === 1) {
-    state = makeReviewState(allDecks[deckIds[0]], deckIds[0])
+  if (deckIds.length === 0) {
+    state = { mode: 'no-decks' }
   } else {
-    state = { mode: 'deck-select', deckIds, names, idx: deckIds.indexOf(activeDeckId) }
+    let activeDeckId = getActiveDeckId() ?? deckIds[0]
+    if (!allDecks[activeDeckId]) activeDeckId = deckIds[0]
+    setActiveDeckId(activeDeckId)
+    const names = deckIds.map(id => allDecks[id].name)
+    if (deckIds.length === 1) {
+      state = makeReviewState(allDecks[deckIds[0]], deckIds[0], false)
+    } else {
+      state = { mode: 'deck-select', deckIds, names, idx: deckIds.indexOf(activeDeckId) }
+    }
   }
 
   await renderState(bridge, state)

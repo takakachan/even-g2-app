@@ -28,14 +28,16 @@ async function setPage(bridge: EvenAppBridge, textObject: TextContainerProperty[
   }
 }
 
-export async function showDeckSelect(bridge: EvenAppBridge, names: string[], idx: number) {
+export async function showDeckSelect(bridge: EvenAppBridge, names: string[], dueCounts: number[], idx: number) {
   const VISIBLE = 5
   const start = Math.max(0, Math.min(idx - 2, names.length - VISIBLE))
   const visible = names.slice(start, start + VISIBLE)
   const lines = visible.map((n, i) => {
     const realIdx = start + i
     const marker = realIdx === idx ? '▶' : ' '
-    return `${marker} ${n}`
+    const due = dueCounts[realIdx]
+    const suffix = due === 0 ? ' ✓' : `  ${due}`
+    return `${marker} ${n}${suffix}`
   })
   await setPage(bridge, [
     makeText('デッキ選択', 4, 32),
@@ -62,5 +64,19 @@ export async function showBack(bridge: EvenAppBridge, front: string, back: strin
 }
 
 export async function showDone(bridge: EvenAppBridge) {
-  await setPage(bridge, [makeText('今日の復習完了！', 110, 80, true)])
+  await setPage(bridge, [
+    makeText('今日の復習完了！', 100, 60, true),
+    makeText('2タップでデッキ選択に戻る', 168, 40),
+  ])
+}
+
+export async function showNoDecks(bridge: EvenAppBridge) {
+  await setPage(bridge, [makeText('デッキがありません\nスマホから追加してください', 90, 100, true)])
+}
+
+export async function showConfirmExit(bridge: EvenAppBridge) {
+  await setPage(bridge, [
+    makeText('アプリを終了しますか？', 88, 56, true),
+    makeText('tap=終了  2タップ=キャンセル', 152, 48),
+  ])
 }
