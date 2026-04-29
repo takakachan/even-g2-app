@@ -9,10 +9,13 @@
     "preview": "vite preview"
   },
   "devDependencies": {
+    "@types/sql.js": "^1.4.11",
     "typescript": "~6.0.2",
     "vite": "^8.0.10"
   },
   "dependencies": {
-    "@evenrealities/even_hub_sdk": "^0.0.10"
+    "@evenrealities/even_hub_sdk": "^0.0.10",
+    "jszip": "^3.10.1",
+    "sql.js": "^1.14.1"
   }
 }

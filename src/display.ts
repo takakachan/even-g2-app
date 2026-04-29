@@ -28,11 +28,27 @@ async function setPage(bridge: EvenAppBridge, textObject: TextContainerProperty[
   }
 }
 
+export async function showDeckSelect(bridge: EvenAppBridge, names: string[], idx: number) {
+  const VISIBLE = 5
+  const start = Math.max(0, Math.min(idx - 2, names.length - VISIBLE))
+  const visible = names.slice(start, start + VISIBLE)
+  const lines = visible.map((n, i) => {
+    const realIdx = start + i
+    const marker = realIdx === idx ? '▶' : ' '
+    return `${marker} ${n}`
+  })
+  await setPage(bridge, [
+    makeText('デッキ選択', 4, 32),
+    makeText(lines.join('\n'), 44, 196, true),
+    makeText('scroll=移動  tap=開始', 244, 44),
+  ])
+}
+
 export async function showFront(bridge: EvenAppBridge, front: string, index: number, total: number) {
   await setPage(bridge, [
     makeText(`${index + 1} / ${total}`, 0, 36),
     makeText(front, 44, 196, true),
-    makeText('tap to reveal', 240, 48),
+    makeText('tap to reveal', 244, 44),
   ])
 }
 
@@ -40,8 +56,8 @@ export async function showBack(bridge: EvenAppBridge, front: string, back: strin
   await setPage(bridge, [
     makeText(front, 0, 60),
     makeText(back, 68, 132, true),
-    makeText(ratingBar(selected), 200, 48),
-    makeText('scroll=select  tap=ok  2x=cancel', 250, 38),
+    makeText(ratingBar(selected), 204, 44),
+    makeText('scroll=選択  tap=確定  2x=戻る', 250, 38),
   ])
 }
 
