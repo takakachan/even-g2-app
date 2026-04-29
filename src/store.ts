@@ -2,18 +2,20 @@ import type { Card, Deck } from './types'
 
 const KEY = 'even-srs-deck'
 
-const SAMPLE: Deck = {
-  name: 'サンプルデッキ',
-  cards: [
-    { id: '1', front: 'Bonjour', back: 'こんにちは', interval: 1, repetitions: 0, easeFactor: 2.5, dueDate: new Date().toISOString() },
-    { id: '2', front: 'Merci', back: 'ありがとう', interval: 1, repetitions: 0, easeFactor: 2.5, dueDate: new Date().toISOString() },
-    { id: '3', front: 'Au revoir', back: 'さようなら', interval: 1, repetitions: 0, easeFactor: 2.5, dueDate: new Date().toISOString() },
-  ],
-}
+export async function loadDeck(): Promise<Deck> {
+  const res = await fetch('./deck.json')
+  const remote: Deck = await res.json()
 
-export function loadDeck(): Deck {
   const raw = localStorage.getItem(KEY)
-  return raw ? JSON.parse(raw) : SAMPLE
+  if (raw) {
+    const local: Deck = JSON.parse(raw)
+    // deck.jsonと同じデッキなら保存済み進捗を使う
+    if (local.name === remote.name) return local
+  }
+
+  // 初回 or 別デッキ → deck.jsonをそのまま使う
+  saveDeck(remote)
+  return remote
 }
 
 export function saveDeck(deck: Deck): void {

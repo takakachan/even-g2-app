@@ -12,7 +12,7 @@ const RATINGS: Rating[] = ['again', 'hard', 'good', 'easy']
 async function main() {
   const bridge = await waitForEvenAppBridge()
 
-  let deck = loadDeck()
+  let deck = await loadDeck()
   const queue = deck.cards.filter(isDue)
 
   let index = 0
