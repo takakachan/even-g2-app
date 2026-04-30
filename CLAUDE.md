@@ -1,65 +1,89 @@
-# EVEN Anki — Even Realities G2 SRSアプリ
+# EVEN Anki
 
-## 概要
-G2スマートグラスでAnki式フラッシュカード学習ができるアプリ。
-スマホ画面に管理UI、G2グラスに学習画面を表示する。
+Even Realities G2スマートグラスで動くAnki式フラッシュカード学習アプリ。
+
+## プロジェクト情報
+
+| 項目 | 値 |
+|---|---|
+| パス | `~/project/even-g2/even-g2-app` |
+| package_id | `io.github.takakachan.evensrs` |
+| GitHub | https://github.com/takakachan/even-g2-app |
+| GitHub Pages | https://takakachan.github.io/even-g2-app/ |
+| デプロイ | `git push origin main` → GitHub Actions → Pages |
 
 ## 技術スタック
 - Vite + TypeScript
-- `@evenrealities/even_hub_sdk` (v0.0.10)
+- `@evenrealities/even_hub_sdk` v0.0.10
 - `sql.js` (WASM SQLite — apkgインポート用)
 - `jszip` (apkg解凍用)
 
-## プロジェクト構造
+## ファイル構成
 ```
 src/
-  main.ts      — エントリポイント、状態マシン、G2イベント処理
-  display.ts   — G2グラスへの画面描画（576×288px）
-  manage.ts    — スマホ画面の管理UI（デッキ・カードCRUD、インポート）
-  store.ts     — ストレージ（localStorage + SDKストレージ永続化）
-  sm2.ts       — SM-2間隔反復アルゴリズム
-  types.ts     — Card, Deck, Rating型定義
-public/
-  deck.json    — デフォルトデッキ（698枚の日本語単語）
-  sql-wasm.wasm — SQLite WASM（apkgパース用）
+  main.ts      — エントリポイント、状態マシン（deck-select / review / no-decks）
+  display.ts   — G2グラス画面描画（showDeckSelect / showFront / showBack / showDone / showNoDecks）
+  manage.ts    — スマホ管理UI（デッキCRUD、カードCRUD、JSON/CSV/APKGインポート）
+  store.ts     — ストレージ（localStorage + SDK永続化、setBridge / syncFromBridge / syncToBridge）
+  sm2.ts       — SM-2間隔反復アルゴリズム（review / isDue）
+  types.ts     — Card, Deck, Rating 型
 app.json       — Even Hubマニフェスト
 ```
 
 ## ビルド・デプロイ
 ```bash
-npm run dev           # 開発サーバー
-npm run build         # ビルド（dist/）
-npm run preview -- --host 0.0.0.0 --port 4173  # ローカルサーブ
-evenhub qr --url "http://192.168.11.9:4173/"   # QR生成
-evenhub pack app.json dist -o even-anki.ehpk   # パッケージ化
-git push origin main  # GitHub Pages自動デプロイ
+npm run build                                    # ビルド（dist/）
+npm run preview -- --host 0.0.0.0 --port 4173   # ローカルサーブ
+evenhub qr --url "http://<YOUR_IP>:<port>/"      # QR生成
+evenhub pack app.json dist -o even-anki.ehpk    # パッケージ化
+git push origin main                             # GitHub Pagesデプロイ
 ```
 
-## アーキテクチャ上の注意
+## G2グラス操作フロー
+```
+起動
+ ├─ デッキ0件 → 「デッキがありません」(2tap=終了)
+ ├─ デッキ1件 → 直接学習開始
+ └─ デッキ2件以上 → デッキ選択画面
+                     scroll=移動, tap=開始, 2tap=終了
 
-### ページ描画
-- `createStartUpPageContainer` は初回1回のみ。以降は `rebuildPageContainer`
-- 1ページに `isEventCapture: 1` は1つだけ
+学習セッション:
+  表面 → tap=裏面へ, 2tap=デッキ選択(複数時) or 終了(1件時)
+  裏面 → scroll=評価変更(下=Easy方向,上=Again方向), tap=確定, 2tap=表面に戻る
+  完了 → 2tap=デッキ選択に戻る
+```
 
-### イベント
-- リングタップの eventType は `undefined` → `CLICK_EVENT` として扱う
-- `textEvent` と `sysEvent` の両方をチェックする
-
-### ストレージ
-- WebViewの localStorage は `.ehpk` パッケージでは揮発する
-- `bridge.setLocalStorage` / `getLocalStorage`（SDKストレージ）で永続化
-- 起動時: SDKストレージ → localStorage に同期
+## ストレージ設計
+```
+localStorage:
+  'even-srs-decks'  → { [deckName: string]: Deck }
+  'even-srs-active' → deckName
+```
+- デッキIDは `deck.name` をキーに使用
+- 旧キー `even-srs-deck` からのマイグレーション処理あり
+- 起動時: SDKストレージ → localStorage に復元
 - 保存時: localStorage + SDKストレージの両方に書く
 
-### やってはいけないこと
-- `history.replaceState` → ブリッジが壊れる
-- `createStartUpPageContainer` を複数回呼ぶ → イベント消える
-- iOSでファイル入力の `accept` に `.apkg` を指定 → グレーアウトされる（`*/*` を使う）
+## 管理UI機能（スマホ画面）
+- デッキ一覧（USE / NAME / DEL）、復習完了デッキに ✓ マーク
+- デッキ追加: JSON / CSV / APKG ファイルインポート、空デッキ作成
+- カード一覧: 検索、ページネーション、EDIT / 削除
+- カード追加・編集（進捗リセットオプション）
+- RELOAD G2 ボタン（location.reload）
 
-## G2操作フロー
-```
-起動 → デッキ選択（複数時）→ 学習セッション → 復習完了
-        ↑ 2tap                 ↑ 2tap(裏面=キャンセル)
-        ↓ tap                  ↓ tap(表面=めくる, 裏面=確定)
-        終了(shutDownPageContainer)
-```
+## デザイン
+- 白背景・ダークテキスト・モノスペースフォント
+- ミニマルなピルボタン（アウトラインスタイル）
+- モーダルはボトムシート形式
+
+## apkgインポート
+- `.apkg` = ZIPファイル内に `collection.anki2` or `collection.anki21`（SQLite DB）
+- `SELECT flds FROM notes` でフィールド取得、`\x1f` 区切りで分割
+- HTMLタグを `stripHtml()` で除去
+- Vite WASM: `import sqlWasmUrl from 'sql.js/dist/sql-wasm.wasm?url'`
+
+## iOS固有の対策
+- viewport: `maximum-scale=1.0, user-scalable=no`（ズーム防止）
+- inputのfont-size: 16px以上（iOSズーム閾値）
+- ファイル選択: `accept="*/*"`（`.apkg` はiOSにグレーアウトされる）
+- file input: `<input>` を `<label>` 外に出して `for` 属性で紐付け
